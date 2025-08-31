@@ -8,68 +8,58 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ✅ Clean MongoDB connection (no deprecated options)
-mongoose.connect('mongodb://localhost:27017/bike');
+// MongoDB connection
+const uri = 'mongodb://localhost:27017/bike';
+mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
-db.once('open', () => {
-    console.log('Connected to MongoDB');
-});
+db.once('open', () => console.log('✅ MongoDB connected'));
 
-// ✅ Login route
+// ================= AUTH ROUTES =================
+
+// Login
 app.post('/login', async (req, res) => {
     const { email, password } = req.body;
     try {
         const user = await userModel.findOne({ email });
-        if (!user) {
-            return res.status(404).json({ error: 'User Not Found', message: 'No user found with the provided email.' });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        if (email === 'admin@gmail.com') {
+            if (password === 'Admin-01') return res.json('Login Admin');
+            return res.status(401).json({ error: 'Incorrect admin password' });
         }
 
-        if (user.email === 'admin@gmail.com') {
-            if (password === 'Admin-01') {
-                return res.json("Login Admin");
-            } else {
-                return res.status(401).json({ error: 'Incorrect Password', message: 'Incorrect password for admin account.' });
-            }
-        }
-
-        if (user.password === password) {
-            return res.json("Login successful");
-        } else {
-            return res.status(401).json({ error: 'Incorrect Password', message: 'Incorrect password. Please try again.' });
-        }
+        if (user.password === password) return res.json('Login successful');
+        return res.status(401).json({ error: 'Incorrect password' });
     } catch (err) {
-        console.error('Error during login:', err);
-        res.status(500).json({ error: 'Server Error', message: 'An error occurred during login.' });
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
-// ✅ Registration route
+// Register
 app.post('/register', async (req, res) => {
     try {
         const existingUser = await userModel.findOne({ email: req.body.email });
-        if (existingUser) {
-            return res.status(400).json({ error: "Email already exists", message: "Account already exists with this email." });
-        }
+        if (existingUser) return res.status(400).json({ error: 'Email already exists' });
 
         const newUser = await userModel.create(req.body);
         res.json(newUser);
     } catch (err) {
-        console.error('Error during registration:', err);
-        res.status(500).json({ error: "Internal server error" });
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
-// ✅ Book service route
+// ================= BOOKING ROUTES =================
+
+// Book service
 app.post('/book-service', async (req, res) => {
     const { name, email, address, phone, vehicleNumber, serviceType, date, time } = req.body;
-
     try {
         const existingBooking = await bookingModel.findOne({ date, time });
-        if (existingBooking) {
-            return res.status(400).json({ error: "Date and time already booked", message: "Please choose another slot." });
-        }
+        if (existingBooking) return res.status(400).json({ error: 'Date and time already booked' });
 
         const newBooking = await bookingModel.create({
             name,
@@ -79,56 +69,75 @@ app.post('/book-service', async (req, res) => {
             vehicleNumber,
             service: serviceType,
             date,
-            time
+            time,
+            status: 'Pending',
+            deliveryDate: null,
+            kilometers: 0
         });
 
-        console.log('Booking created:', newBooking);
-        res.status(201).json({ message: "Service booked successfully" });
-    } catch (error) {
-        console.error('Error creating booking:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(201).json({ message: 'Service booked successfully', booking: newBooking });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
-// ✅ Admin - Get all bookings
+// Get all bookings (Admin)
 app.get('/admin', async (req, res) => {
     try {
         const bookings = await bookingModel.find();
         res.json(bookings);
-    } catch (error) {
-        console.error('Error fetching bookings:', error);
-        res.status(500).json({ error: 'Internal server error' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
-// ✅ Admin - Delete booking
+// Update booking (Admin: status, deliveryDate, kilometers)
+app.put('/admin/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const updatedBooking = await bookingModel.findByIdAndUpdate(
+            id,
+            { $set: req.body },
+            { new: true }
+        );
+
+        if (!updatedBooking) return res.status(404).json({ error: 'Booking not found' });
+
+        res.json({ message: 'Booking updated successfully', booking: updatedBooking });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Delete booking
 app.delete('/admin/:id', async (req, res) => {
     const { id } = req.params;
     try {
         const deletedBooking = await bookingModel.findByIdAndDelete(id);
-        if (!deletedBooking) {
-            return res.status(404).json({ error: 'Booking not found' });
-        }
+        if (!deletedBooking) return res.status(404).json({ error: 'Booking not found' });
+
         res.json({ message: 'Booking deleted successfully' });
-    } catch (error) {
-        console.error('Error deleting booking:', error);
-        res.status(500).json({ error: 'Internal server error' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
-// ✅ Get bookings by user email
+// Get bookings for specific user
 app.get('/user-bookings/:email', async (req, res) => {
+    const userEmail = req.params.email;
     try {
-        const bookings = await bookingModel.find({ email: req.params.email });
+        const bookings = await bookingModel.find({ email: userEmail });
         res.json(bookings);
-    } catch (error) {
-        console.error('Error fetching user bookings:', error);
-        res.status(500).json({ error: 'Internal server error' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
-// ✅ Start the server
+// ================= START SERVER =================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
