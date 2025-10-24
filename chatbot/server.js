@@ -32,16 +32,42 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Gemini setup
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const MODELS = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"];
+
+// Updated model names (v2.5)
+const MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-8b", "gemini-2.5-pro"];
 
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok", models: MODELS });
 });
 
+// Keywords related to bike, vehicle, and service
+const ALLOWED_KEYWORDS = [
+  "bike", "motorbike", "motorcycle", "scooter", "vehicle", "car", "engine", "service",
+  "repair", "maintenance", "garage", "brake", "oil", "battery", "tyre", "mechanic",
+  "wash", "insurance", "pickup", "drop", "service center", "bike service", "vehicle issue",
+  "bike repair", "two wheeler", "motor", "spare parts", "engine oil", "chain", "helmet"
+];
+
+// Helper function to check if text is related to vehicle/bike context
+function isVehicleRelated(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return ALLOWED_KEYWORDS.some(word => lower.includes(word));
+}
+
 // Chat endpoint
 app.post("/api/chat", upload.single("image"), async (req, res) => {
-  const userText = req.body.text?.trim() || "Hello!";
+  const userText = req.body.text?.trim() || "";
+
+  // 🔒 Check if query is vehicle/bike/service related
+  if (!isVehicleRelated(userText)) {
+    return res.json({
+      answer:
+        "🚫 Sorry, I can only help you with bike, vehicle, or service-related queries."
+    });
+  }
+
   const file = req.file;
   let responseText = "";
   let errorLast = null;
@@ -52,7 +78,7 @@ app.post("/api/chat", upload.single("image"), async (req, res) => {
 
       let result;
       if (file) {
-        // Read image and convert to base64
+        // Read and encode image
         const imageData = fs.readFileSync(file.path);
         const base64 = imageData.toString("base64");
 
@@ -67,11 +93,10 @@ app.post("/api/chat", upload.single("image"), async (req, res) => {
         ]);
         fs.unlinkSync(file.path);
       } else {
-        // Text only
         result = await model.generateContent([{ text: userText }]);
       }
 
-      // Extract text response safely
+      // Extract text safely
       responseText =
         result?.response?.text?.() ||
         result?.response?.candidates?.[0]?.content?.parts?.[0]?.text ||

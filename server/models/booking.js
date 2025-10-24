@@ -21,6 +21,10 @@ const bookingSchema = new mongoose.Schema({
     kilometers: {
         type: Number,
         default: 0 // starts as 0
+    },
+    amount: {
+        type: Number,
+        default: 0 // starts as 0
     }
 });
 

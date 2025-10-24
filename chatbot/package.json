@@ -1,15 +1,15 @@
 {
   "name": "chatbot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Bike Service Project Chatbot using Gemini API",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "Ranjith MV",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "cors": "^2.8.5",
