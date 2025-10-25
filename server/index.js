@@ -190,7 +190,7 @@ app.get('/user-report-pdf/:email', async (req, res) => {
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(20);
         doc.setFont('helvetica', 'bold');
-        doc.text('🚴‍♂️ Bike Service Booking Report', 105, 15, { align: 'center' });
+        doc.text(' Bike Service Booking Report', 105, 15, { align: 'center' });
         
         doc.setFontSize(10);
         doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 105, 20, { align: 'center' });
