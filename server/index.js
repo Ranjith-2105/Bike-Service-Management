@@ -9,9 +9,9 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// MongoDB Atlas connection
-const uri = 'mongodb+srv://iamranjith21_db_user:gQWoWFjmknmAUsBV@bike.y1wfd7b.mongodb.net/?appName=bike';
-mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+// MongoDB Atlas connection (use environment variable in production)
+const uri = process.env.MONGODB_URI || 'REPLACE_WITH_YOUR_MONGODB_URI';
+mongoose.connect(uri);
 
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
