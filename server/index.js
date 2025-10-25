@@ -2,16 +2,31 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const { jsPDF } = require('jspdf');
+const PDFDocument = require('pdfkit');
+const nodemailer = require('nodemailer');
 const userModel = require('./models/user.js');
 const bookingModel = require('./models/booking.js');
+
+// Email configuration
+const mailer = nodemailer.createTransport({
+  host: "live.smtp.mailtrap.io",
+  port: 587,
+  secure: false,
+  auth: {
+    user: "api",
+    pass: "55f4ca3cee0df03e582b7984f88b2a6c",
+  },
+});
+
+const mailFrom = 'rathnajewellery@gmail.com';
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// MongoDB Atlas connection (use environment variable in production)
-const uri = process.env.MONGODB_URI || 'REPLACE_WITH_YOUR_MONGODB_URI';
-mongoose.connect(uri);
+// MongoDB Atlas connection
+const uri = 'mongodb+srv://iamranjith21_db_user:gQWoWFjmknmAUsBV@bike.y1wfd7b.mongodb.net/?appName=bike';
+mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
@@ -175,13 +190,11 @@ app.get('/user-report-pdf/:email', async (req, res) => {
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(20);
         doc.setFont('helvetica', 'bold');
-        doc.text(' Bike Service Booking Report', 105, 15, { align: 'center' });
+        doc.text('🚴‍♂️ Bike Service Booking Report', 105, 15, { align: 'center' });
         
         doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 105, 22, { align: 'center' });
-        
-        // User Information
-        let yPosition = 45;
+        doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 105, 20, { align: 'center' });
+      let yPosition = 45;
         doc.setTextColor(...textColor);
         doc.setFontSize(14);
         doc.setFont('helvetica', 'bold');
@@ -293,6 +306,158 @@ app.get('/user-report-pdf/:email', async (req, res) => {
     } catch (err) {
         console.error('PDF generation error:', err);
         res.status(500).json({ error: 'Failed to generate PDF' });
+    }
+});
+
+// Delete booking
+app.delete('/admin/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const deletedBooking = await bookingModel.findByIdAndDelete(id);
+        if (!deletedBooking) return res.status(404).json({ error: 'Booking not found' });
+
+        res.json({ message: 'Booking deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get bookings for specific user
+app.get('/user-bookings/:email', async (req, res) => {
+    const userEmail = req.params.email;
+    try {
+        const bookings = await bookingModel.find({ email: userEmail });
+        res.json(bookings);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ================= REPORT ROUTE (CSV Download) =================
+app.get('/user-report/:email', async (req, res) => {
+    const userEmail = req.params.email;
+    try {
+        const bookings = await bookingModel.find({ email: userEmail }).sort({ date: 1, time: 1 });
+        const headers = [
+            'Name','Email','Phone','Address','VehicleNumber','Service','Date','Time','Status','DeliveryDate','Kilometers','Amount'
+        ];
+        const rows = bookings.map(b => [
+            b.name || '',
+            b.email || '',
+            b.phone || '',
+            b.address || '',
+            b.vehicleNumber || '',
+            b.service || '',
+            b.date || '',
+            b.time || '',
+            b.status || '',
+            b.deliveryDate || '',
+            (b.kilometers ?? 0).toString(),
+            (b.amount ?? 0).toString()
+        ]);
+
+        const escape = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+        const csv = [headers.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))].join('\n');
+
+        const filename = `bike_service_report_${Date.now()}.csv`;
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.status(200).send(csv);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Unable to generate report' });
+    }
+});
+
+// ================= REPORT ROUTE (PDF - only Accepted) =================
+app.get('/user-report-pdf/:email', async (req, res) => {
+    const userEmail = req.params.email;
+    try {
+        const bookings = await bookingModel.find({ email: userEmail, status: 'Accepted' }).sort({ date: 1, time: 1 });
+
+        const doc = new PDFDocument({ size: 'A4', margin: 40 });
+        const filename = `bike_service_report_${Date.now()}.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        doc.pipe(res);
+
+        // Header
+        doc
+          .font('Helvetica-Bold')
+          .fillColor('#0ea5a4')
+          .fontSize(22)
+          .text('Bike Service - Service History (Accepted)', { align: 'center' })
+          .moveDown(0.2)
+          .font('Helvetica')
+          .fillColor('#374151')
+          .fontSize(10)
+          .text(`User: ${userEmail}`, { align: 'center' })
+          .moveDown(0.8);
+
+        // Table header
+        const headers = [
+          'Name','Vehicle','Service','Date','Time','Delivery','KM'
+        ];
+
+        // Column positions (last column is Amount aligned right)
+        const columnX = [40, 150, 260, 350, 410, 470, 530];
+        const rightEdge = 570;
+        const amountColWidth = rightEdge - columnX[columnX.length - 1] - 6;
+        doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827');
+        const headerY = doc.y;
+        headers.forEach((h, i) => {
+          const nextX = columnX[i+1] || (rightEdge - amountColWidth - 6);
+          doc.text(h, columnX[i], headerY, { width: nextX - columnX[i] - 6, align: 'left' });
+        });
+        doc.text('Amount', rightEdge - amountColWidth, headerY, { width: amountColWidth, align: 'right' });
+        doc.moveDown(0.5);
+        doc.moveTo(40, doc.y).lineTo(570, doc.y).stroke('#e5e7eb');
+        doc.moveDown(0.5);
+
+        // Rows
+        let totalAmount = 0;
+        const rowHeight = 18;
+        bookings.forEach((b, idx) => {
+          totalAmount += Number(b.amount || 0);
+          const y = doc.y;
+          // Zebra shading
+          if (idx % 2 === 0) {
+            doc.save().rect(40, y - 2, 530, rowHeight).fill('#fafafa').restore();
+          }
+          doc.font('Helvetica').fillColor('#111827').fontSize(10);
+          const values = [
+            b.name || '',
+            b.vehicleNumber || '',
+            b.service || '',
+            b.date || '',
+            b.time || '',
+            (b.deliveryDate || ''),
+            (b.kilometers ?? 0).toString()
+          ];
+          values.forEach((v, i) => {
+            const nextX = columnX[i+1] || (rightEdge - amountColWidth - 6);
+            doc.text(String(v), columnX[i], y, { width: nextX - columnX[i] - 6, align: 'left' });
+          });
+          const amtText = `Rs.${Number(b.amount ?? 0).toFixed(2)}`;
+          doc.text(amtText, rightEdge - amountColWidth, y, { width: amountColWidth, align: 'right' });
+          doc.moveTo(40, y + rowHeight - 6).lineTo(570, y + rowHeight - 6).stroke('#f3f4f6');
+          doc.y = y + rowHeight;
+        });
+
+        // Footer / total
+        doc.moveDown(0.5);
+        doc.moveTo(40, doc.y).lineTo(570, doc.y).stroke('#e5e7eb');
+        doc.moveDown(0.3);
+        doc.font('Helvetica-Bold').fontSize(12).fillColor('#111827').text(`Total Spending (Accepted): Rs.${totalAmount.toFixed(2)}`, rightEdge - 300, doc.y, { width: 300, align: 'right' });
+        doc.moveDown(1);
+        doc.fontSize(9).fillColor('#6b7280').text('Generated by Bike Service System', { align: 'center' });
+
+        doc.end();
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Unable to generate PDF report' });
     }
 });
 
